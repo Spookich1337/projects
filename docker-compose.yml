@@ -17,6 +17,11 @@ services:
       context: .
       dockerfile: docker/server.dockerfile    
     container_name: myapp
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://admin:admin@postgres:5432/mydb
     depends_on:
       - postgres
     ports:

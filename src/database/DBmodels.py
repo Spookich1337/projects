@@ -20,8 +20,8 @@ class User(Base):
     __tablename__ = "users"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(16))
-    email: Mapped[str] = mapped_column(String(254))
+    name: Mapped[str] = mapped_column(String(16), unique=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True)
     password: Mapped[str] = mapped_column(String(32))
     subscriptions: Mapped[List["User"]] = relationship(
         "User",
@@ -41,15 +41,19 @@ class User(Base):
         "Post", 
         back_populates="author", 
         cascade="all, delete-orphan"
-        )
+    )
 
 
 class Post(Base):
     __tablename__ = "posts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    author_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    author_id: Mapped[int] = mapped_column(Integer, ForeignKey('users.id'), nullable=False)
     title: Mapped[str] = mapped_column(String(64), unique=True)
     text: Mapped[str] = mapped_column(String(300), nullable=True)
     rating_up: Mapped[list[int]] = mapped_column(ARRAY(Integer, dimensions=1), default=list)
     rating_down: Mapped[list[int]] = mapped_column(ARRAY(Integer, dimensions=1), default=list)
+    author: Mapped["User"] = relationship(
+        "User", 
+        back_populates="posts"
+    )
