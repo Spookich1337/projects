@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from src.database.DBconfig import engine, get_db 
 from src.database.DBmodels import *
 from src.schemas.schem import *
@@ -19,17 +20,38 @@ app.add_middleware(
 )
 
 
-Base.metadata.create_all(bind=engine)
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()    
+    yield   
+    await engine.dispose()
+
+
+async def commit_db(db: AsyncSession):
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            detail=f"Something goes wrong:{e}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        ) 
 
 
 @app.get("/")
-def root():
-    return FileResponse("src/template/index.html")
+async def root():
+    return {"test1":"connect"}
 
 
 @app.get("/user/{id}", response_model=UserResponse)
-def get_user(id:int, db:Session = Depends(get_db)):
-    exist_user = db.query(User).filter(User.id == id).first()
+async def get_user(id:int, db: AsyncSession = Depends(get_db)):
+    exist_user_query = await db.execute(select(User).where(User.id == id))
+    exist_user = exist_user_query.scalars().first()
     if not exist_user:
         raise HTTPException(
             detail="Not found user with this ID",
@@ -39,8 +61,9 @@ def get_user(id:int, db:Session = Depends(get_db)):
 
 
 @app.post("/user", response_model=UserResponse)
-def post_user(data:UserCreate, db:Session = Depends(get_db)):
-    exist_user = db.query(User).filter((User.name == data.name) | (User.email == data.email)).first()
+async def post_user(data:UserCreate, db:AsyncSession = Depends(get_db)):
+    exist_user_query = await db.execute(select(User).where(User.name == data.name or User.email == data.email))
+    exist_user = exist_user_query.scalars().first()
     if exist_user:
         raise HTTPException(
             detail="This user already exist",
@@ -48,21 +71,15 @@ def post_user(data:UserCreate, db:Session = Depends(get_db)):
         )
     new_user = User(**data.model_dump())
     db.add(new_user)
-    try:
-        db.commit()
-        db.refresh(new_user)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            detail=f"Something goes wrong: {e}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    await commit_db(db)
+    await db.refresh(new_user)
     return new_user
 
 
 @app.put("/user/{id}", response_model=UserResponse)
-def put_user(id:int, data:UserUpdate, db:Session = Depends(get_db)):
-    exist_user = db.query(User).filter(User.id == id).first()
+async def put_user(id:int, data:UserUpdate, db:AsyncSession = Depends(get_db)):
+    exist_user_query = await db.execute(select(User).where(User.id == id))
+    exist_user = exist_user_query.scalars().first()
     if not exist_user:
         raise HTTPException(
             detail="Not found user with this ID", 
@@ -71,55 +88,45 @@ def put_user(id:int, data:UserUpdate, db:Session = Depends(get_db)):
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(exist_user, key, value)
-    try:
-        db.commit()
-        db.refresh(exist_user)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            detail=f"Something goes wrong:{e}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )    
+    await commit_db(db)
+    await db.refresh(exist_user)
     return exist_user
 
 
 @app.delete("/user/{id}")
-def delete_user(id:int, db:Session = Depends(get_db)):
-    exist_user = db.query(User).filter(User.id == id).first()
+async def delete_user(id:int, db:AsyncSession = Depends(get_db)):
+    exist_user_query = await db.execute(select(User).where(User.id == id))
+    exist_user = exist_user_query.scalars().first()
     if not exist_user:
         raise HTTPException(
             detail="Not found user with this ID", 
             status_code=status.HTTP_404_NOT_FOUND
         )
-    db.delete(exist_user)
-    try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            detail=f"Something goes wrong:{e}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        ) 
+    await db.delete(exist_user)
+    await commit_db(db)
     return None   
 
 
 @app.get("/posts", response_model=PostList)
-def get_all_posts(db:Session = Depends(get_db)):
-    posts = db.query(Post).all()
+async def get_all_posts(db:AsyncSession = Depends(get_db)):
+    posts_query = await db.execute(select(Post))
+    posts = posts_query.scalars().all()
     if not posts:
         raise HTTPException(
             detail="Not found any available posts", 
             status_code=status.HTTP_404_NOT_FOUND
         )
-    count = db.query(Post).count()
+    count = len(posts)
     return {
         "count":count,
         "posts":posts
         }
 
+
 @app.get("/post/{id}", response_model=PostResponse)
-def get_post(id:int, db:Session = Depends(get_db)):
-    exist_post = db.query(Post).filter(Post.id == id).first()
+async def get_post(id:int, db:AsyncSession = Depends(get_db)):
+    exist_post_query = await db.execute(select(Post).where(Post.id == id))
+    exist_post = exist_post_query.scalars().first()
     if not exist_post:
         raise HTTPException(
             detail="Not found post with this ID",
@@ -129,8 +136,9 @@ def get_post(id:int, db:Session = Depends(get_db)):
 
 
 @app.post("/post", response_model=PostResponse)
-def post_post(data:PostCreate, db:Session = Depends(get_db)):
-    exist_post = db.query(Post).filter(Post.title == data.title).first()
+async def post_post(data:PostCreate, db:AsyncSession = Depends(get_db)):
+    exist_post_query = await db.execute(select(Post).where(Post.title == data.title))
+    exist_post = exist_post_query.scalars().first()
     if exist_post:
         raise HTTPException(
             detail="This post already exist",
@@ -138,20 +146,13 @@ def post_post(data:PostCreate, db:Session = Depends(get_db)):
         )
     new_post = Post(**data.model_dump())
     db.add(new_post)
-    try:
-        db.commit()
-        db.refresh(new_post)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            detail=f"Something goes wrong: {e}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    await commit_db(db)
+    db.refresh(new_post)
     return new_post
 
 
 @app.put("/post/{id}", response_model=PostResponse)
-def put_post(id:int, data:PostUpdate, db:Session = Depends(get_db)):
+def put_post(id:int, data:PostUpdate, db:AsyncSession = Depends(get_db)):
     exist_post = db.query(Post).filter(Post.id == id).first()
     if not exist_post:
         raise HTTPException(
@@ -174,7 +175,7 @@ def put_post(id:int, data:PostUpdate, db:Session = Depends(get_db)):
 
 
 @app.delete("/post/{id}")
-def delete_post(id:int, db:Session = Depends(get_db)):
+def delete_post(id:int, db:AsyncSession = Depends(get_db)):
     exist_post = db.query(Post).filter(Post.id == id).first()
     if not exist_post:
         raise HTTPException(
