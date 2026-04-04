@@ -2,11 +2,18 @@ from pydantic import *
 from typing import Optional
 
 
+class UserShortResponse(BaseModel):
+    id: int
+    name: str
+
+
 class UserResponse(BaseModel):
     id: int
     name: str
     email: str
     password: str
+    subscriptions: list[UserShortResponse]
+    subscribers: list[UserShortResponse]
 
 
 class UserCreate(BaseModel):

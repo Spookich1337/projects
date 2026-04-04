@@ -2,7 +2,8 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 from src.database.DBconfig import engine, get_db 
 from src.database.DBmodels import *
 from src.schemas.schem import *
@@ -39,7 +40,7 @@ async def root():
 
 @app.get("/user/{id}", response_model=UserResponse)
 async def get_user(id:int, db: AsyncSession = Depends(get_db)):
-    exist_user_query = await db.execute(select(User).where(User.id == id))
+    exist_user_query = await db.execute(select(User).where(User.id == id).options(selectinload(User.subscriptions), selectinload(User.subscribers)))
     exist_user = exist_user_query.scalars().first()
     if not exist_user:
         raise HTTPException(
@@ -115,6 +116,90 @@ async def delete_user(id:int, db:AsyncSession = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         ) 
     return None   
+
+
+@app.post("/user/sub/{id_user}/{id_author}", response_model=UserResponse)
+async def user_subscribe(id_user:int, id_author:int, db:AsyncSession = Depends(get_db)):
+    user_query = await db.execute(select(User).where(User.id == id_user))
+    author_query = await db.execute(select(User).where(User.id == id_author))
+    exist_user = user_query.scalars().first()
+    exist_author = author_query.scalars().first()
+    if not exist_user:
+        raise HTTPException(
+            detail="Not found user with this ID", 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    if not exist_author:
+        raise HTTPException(
+            detail="Not found author with this ID", 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    subscription_check = await db.execute(
+        select(user_subscriptions).where(
+            and_(
+                user_subscriptions.c.subscriber_id == id_user,
+                user_subscriptions.c.subscribed_to_id == id_author
+            )
+        )
+    )
+    if subscription_check.first():
+        raise HTTPException(
+            detail="Bad request, user already subscribed to this author",
+            status_code=status.HTTP_400_BAD_REQUEST
+        )    
+    from sqlalchemy import insert
+    stmt = insert(user_subscriptions).values(
+        subscriber_id=id_user,
+        subscribed_to_id=id_author
+    )
+    try:
+        await db.execute(stmt)
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            detail=f"Something goes wrong:{e}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    return exist_user
+           
+
+@app.delete("/user/sub/{id_user}/{id_author}", response_model=UserCreate)
+async def delete_subscribe(id_user:int, id_author:int, db:AsyncSession = Depends(get_db)):
+    user_query = await db.execute(
+        select(User)
+        .where(User.id == id_user)
+        .options(selectinload(User.subscribers))
+    )
+    exist_user = user_query.scalars().first()
+    author_query = await db.execute(
+        select(User)
+        .where(User.id == id_author)
+        .options(selectinload(User.subscribers))
+    )
+    exist_author = author_query.scalars().first()
+    if not exist_user:
+        raise HTTPException(
+            detail="Not found user with this ID", 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    if not exist_author:
+        raise HTTPException(
+            detail="Not found author with this ID", 
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    if not (exist_user in exist_author.subscribers):
+        raise HTTPException(detail="Bad request, user already subscribed to this author",status_code=status.HTTP_400_BAD_REQUEST)
+    exist_author.subscribers.remove(exist_user)
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            detail=f"Something goes wrong:{e}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    return exist_user
 
 
 @app.get("/posts", response_model=PostList)
@@ -211,3 +296,5 @@ async def delete_post(id:int, db:AsyncSession = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         ) 
     return None
+
+
