@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мой Форум</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans">
+
+    <nav class="bg-blue-600 text-white p-4 shadow-md">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold cursor-pointer" onclick="showPage('feed')">Блог-Платформа</h1>
+            <div id="navMenu">
+                </div>
+        </div>
+    </nav>
+
+    <div class="max-w-4xl mx-auto p-4 mt-6">
+
+        <div id="page-auth" class="hidden max-w-md mx-auto space-y-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-xl font-bold mb-4">Вход</h2>
+                <form id="loginForm" class="space-y-4">
+                    <input type="email" id="loginEmail" placeholder="Email" class="w-full p-2 border rounded" required>
+                    <input type="password" id="loginPassword" placeholder="Пароль" class="w-full p-2 border rounded" required>
+                    <button type="submit" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Войти</button>
+                </form>
+                <div id="loginResult" class="mt-2 text-sm text-red-600"></div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-xl font-bold mb-4">Регистрация</h2>
+                <form id="registerForm" class="space-y-4">
+                    <input type="text" id="regName" placeholder="Имя" class="w-full p-2 border rounded" required>
+                    <input type="email" id="regEmail" placeholder="Email" class="w-full p-2 border rounded" required>
+                    <input type="password" id="regPassword" placeholder="Пароль" class="w-full p-2 border rounded" required>
+                    <button type="submit" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Зарегистрироваться</button>
+                </form>
+                <div id="regResult" class="mt-2 text-sm text-red-600"></div>
+            </div>
+        </div>
+
+        <div id="page-feed" class="hidden space-y-6">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h2 class="text-xl font-bold mb-4">Написать пост</h2>
+                <form id="postForm" class="space-y-4">
+                    <input type="text" id="postTitle" placeholder="Заголовок поста" class="w-full p-2 border rounded font-bold" required>
+                    <textarea id="postText" placeholder="Что у вас нового?" class="w-full p-2 border rounded" rows="3" required></textarea>
+                    <button type="submit" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Опубликовать</button>
+                </form>
+                <div id="postResult" class="mt-2 text-sm text-green-600"></div>
+            </div>
+
+            <div class="flex justify-between items-center">
+                <h2 id="feedTitle" class="text-2xl font-bold">Все посты</h2>
+                <div class="space-x-2">
+                    <button onclick="loadPosts('all')" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">Все</button>
+                    <button onclick="loadPosts('recom')" class="bg-yellow-400 px-4 py-2 rounded hover:bg-yellow-500">Рекомендации</button>
+                </div>
+            </div>
+            
+            <div id="postsContainer" class="space-y-4"></div>
+        </div>
+
+    </div>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:8080';
+        let currentUser = JSON.parse(localStorage.getItem('user'));
+
+        // Инициализация
+        function init() {
+            updateNav();
+            if (currentUser) {
+                showPage('feed');
+                loadPosts('all');
+            } else {
+                showPage('auth');
+            }
+        }
+
+        // Управление видимостью страниц
+        function showPage(pageId) {
+            document.getElementById('page-auth').classList.add('hidden');
+            document.getElementById('page-feed').classList.add('hidden');
+            document.getElementById(`page-${pageId}`).classList.remove('hidden');
+        }
+
+        // Обновление навигации в зависимости от статуса авторизации
+        function updateNav() {
+            const navMenu = document.getElementById('navMenu');
+            if (currentUser) {
+                navMenu.innerHTML = `
+                    <span class="mr-4">Привет, <b>${currentUser.name}</b>!</span>
+                    <button onclick="logout()" class="bg-red-500 px-3 py-1 rounded hover:bg-red-600">Выйти</button>
+                `;
+            } else {
+                navMenu.innerHTML = `<span class="italic">Не авторизован</span>`;
+            }
+        }
+
+        // Логин
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                email: document.getElementById('loginEmail').value,
+                password: document.getElementById('loginPassword').value
+            };
+            try {
+                const response = await fetch(`${API_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (response.ok) {
+                    currentUser = await response.json();
+                    localStorage.setItem('user', JSON.stringify(currentUser));
+                    init();
+                } else {
+                    const error = await response.json();
+                    document.getElementById('loginResult').innerText = error.detail;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        // Регистрация
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('regName').value,
+                email: document.getElementById('regEmail').value,
+                password: document.getElementById('regPassword').value
+            };
+            try {
+                const response = await fetch(`${API_URL}/user`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (response.ok) {
+                    // Сразу логиним после успешной регистрации
+                    currentUser = await response.json();
+                    localStorage.setItem('user', JSON.stringify(currentUser));
+                    init();
+                } else {
+                    const error = await response.json();
+                    document.getElementById('regResult').innerText = error.detail;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        // Выход
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('user');
+            init();
+        }
+
+        // Создание поста
+        document.getElementById('postForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                author_id: currentUser.id,
+                title: document.getElementById('postTitle').value,
+                text: document.getElementById('postText').value,
+                rating_up: [],
+                rating_down: []
+            };
+            try {
+                const response = await fetch(`${API_URL}/post`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (response.ok) {
+                    document.getElementById('postTitle').value = '';
+                    document.getElementById('postText').value = '';
+                    loadPosts('all');
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        // Загрузка постов (все или рекомендации)
+        async function loadPosts(type) {
+            const container = document.getElementById('postsContainer');
+            const title = document.getElementById('feedTitle');
+            container.innerHTML = '<p class="text-gray-500">Загрузка...</p>';
+            
+            let url = `${API_URL}/posts`;
+            title.innerText = 'Все посты';
+
+            if (type === 'recom') {
+                url = `${API_URL}/post/rec/${currentUser.id}`;
+                title.innerText = 'Рекомендации';
+            }
+
+            try {
+                const response = await fetch(url);
+                if (response.status === 404) {
+                    container.innerHTML = '<p class="text-gray-500">Постов пока нет.</p>';
+                    return;
+                }
+                const data = await response.json();
+                renderPosts(data.posts);
+            } catch (err) {
+                console.error(err);
+                container.innerHTML = `<p class="text-red-500">Ошибка загрузки ленты.</p>`;
+            }
+        }
+
+        // Отрисовка постов
+        function renderPosts(posts) {
+            const container = document.getElementById('postsContainer');
+            container.innerHTML = '';
+            
+            posts.forEach(post => {
+                // Проверяем, лайкал/дизлайкал ли текущий юзер этот пост
+                const upvotes = post.rating_up ? post.rating_up.length : 0;
+                const downvotes = post.rating_down ? post.rating_down.length : 0;
+                const isLiked = post.rating_up && post.rating_up.includes(currentUser.id);
+                const isDisliked = post.rating_down && post.rating_down.includes(currentUser.id);
+
+                const postDiv = document.createElement('div');
+                postDiv.className = 'bg-white p-5 rounded-lg shadow border-l-4 border-blue-500 relative';
+                postDiv.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-bold text-xl">${post.title}</h3>
+                            <p class="text-sm text-gray-500 mb-3">Автор ID: ${post.author_id}</p>
+                        </div>
+                        ${post.author_id !== currentUser.id ? 
+                          `<button onclick="subscribe(${post.author_id})" class="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded hover:bg-blue-200">Подписаться</button>` 
+                          : ''}
+                    </div>
+                    <p class="text-gray-800">${post.text}</p>
+                    
+                    <div class="mt-4 flex items-center space-x-4 border-t pt-3">
+                        <button onclick="ratePost(${post.id}, 'up')" class="flex items-center space-x-1 ${isLiked ? 'text-green-600 font-bold' : 'text-gray-500 hover:text-green-500'}">
+                            <span>👍</span> <span>${upvotes}</span>
+                        </button>
+                        <button onclick="ratePost(${post.id}, 'down')" class="flex items-center space-x-1 ${isDisliked ? 'text-red-600 font-bold' : 'text-gray-500 hover:text-red-500'}">
+                            <span>👎</span> <span>${downvotes}</span>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(postDiv);
+            });
+        }
+
+        // Оценка поста
+        async function ratePost(postId, action) {
+            try {
+                // Пытаемся поставить лайк/дизлайк. В бэкенде у тебя /post/rating/up/{post_id}/{user_id}
+                const response = await fetch(`${API_URL}/post/rating/${action}/${postId}/${currentUser.id}`, {
+                    method: 'POST'
+                });
+                
+                // Если бэкенд возвращает 400 (уже лайкнул), логика твоего бэкенда не позволяет снять лайк этим же запросом
+                // Для упрощения фронтенда мы просто перезагружаем ленту, чтобы обновить цифры
+                loadPosts('all'); 
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Подписка на автора
+        async function subscribe(authorId) {
+            try {
+                const response = await fetch(`${API_URL}/user/sub/${currentUser.id}/${authorId}`, {
+                    method: 'POST'
+                });
+                if (response.ok) {
+                    alert('Вы успешно подписались!');
+                } else {
+                    const err = await response.json();
+                    alert(err.detail); // Покажет "user already subscribed" если уже подписан
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Запуск
+        init();
+    </script>
+</body>
+</html>

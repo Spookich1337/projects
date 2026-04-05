@@ -1,8 +1,11 @@
+import random
+import os
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from src.database.DBconfig import engine, get_db 
 from src.database.DBmodels import *
@@ -33,13 +36,27 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+html_path = os.path.join(current_dir, "index.html")
 @app.get("/")
 async def root():
-    return {"test1":"connect"}
+    return FileResponse(html_path)
+
+
+@app.post("/login", response_model=UserResponse)
+async def login_user(data:UserLogin, db:AsyncSession = Depends(get_db)):
+    user_query = await db.execute(select(User).where(and_(User.email == data.email, User.password == data.password)).options(selectinload(User.subscriptions), selectinload(User.subscribers)))
+    user = user_query.scalars().first()
+    if not user:
+        raise HTTPException(
+            detail="Wrong email or password",
+            status_code=status.HTTP_401_UNAUTHORIZED
+        )
+    return user
 
 
 @app.get("/user/{id}", response_model=UserResponse)
-async def get_user(id:int, db: AsyncSession = Depends(get_db)):
+async def get_user(id:int, db:AsyncSession = Depends(get_db)):
     exist_user_query = await db.execute(select(User).where(User.id == id).options(selectinload(User.subscriptions), selectinload(User.subscribers)))
     exist_user = exist_user_query.scalars().first()
     if not exist_user:
@@ -200,6 +217,44 @@ async def delete_subscribe(id_user:int, id_author:int, db:AsyncSession = Depends
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     return exist_user
+
+
+@app.get("/post/rec/{user_id}", response_model=PostList)
+async def get_post_recom(user_id: int, db: AsyncSession = Depends(get_db)):
+    user_query = await db.execute(
+        select(User).where(User.id == user_id).options(selectinload(User.subscriptions))
+    )
+    user = user_query.scalars().first()    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    subscribed_ids = [author.id for author in user.subscriptions]   
+    limit = 10
+    sub_limit = 8
+    final_posts = []
+    if subscribed_ids:
+        sub_posts_query = await db.execute(
+            select(Post)
+            .where(Post.author_id.in_(subscribed_ids))
+            .order_by(func.random())
+            .limit(sub_limit)
+        )
+        final_posts.extend(sub_posts_query.scalars().all())
+    already_chosen_ids = [p.id for p in final_posts]
+    rand_posts_query = await db.execute(
+        select(Post)
+        .where(and_(
+            Post.id.not_in(already_chosen_ids) if already_chosen_ids else True,
+            Post.author_id.not_in(subscribed_ids) if subscribed_ids else True
+        ))
+        .order_by(func.random())
+        .limit(limit - len(final_posts)) # Добираем до общего лимита
+    )
+    final_posts.extend(rand_posts_query.scalars().all())
+    random.shuffle(final_posts)
+    return {
+        "count": len(final_posts),
+        "posts": final_posts
+    }
 
 
 @app.get("/posts", response_model=PostList)

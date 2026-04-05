@@ -2,6 +2,11 @@ from pydantic import *
 from typing import Optional
 
 
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
 class UserShortResponse(BaseModel):
     id: int
     name: str
