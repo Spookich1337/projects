@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from src.database.DBconfig import engine, get_db 
 from src.database.DBmodels import *
 from src.schemas.schem import *
+from .celery import new_post_notification
 
 
 app = FastAPI()
@@ -80,6 +81,11 @@ async def post_user(data:UserCreate, db:AsyncSession = Depends(get_db)):
     db.add(new_user)
     try:
         await db.commit()
+        await db.execute(
+            select(User)
+            .where(User.id == new_user.id)
+            .options(selectinload(User.subscriptions), selectinload(User.subscribers))
+        )
         await db.refresh(new_user)
     except Exception as e:
         await db.rollback()
@@ -305,6 +311,7 @@ async def post_post(data:PostCreate, db:AsyncSession = Depends(get_db)):
             detail=f"Something goes wrong:{e}",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         ) 
+    new_post_notification.delay()
     return new_post
 
 

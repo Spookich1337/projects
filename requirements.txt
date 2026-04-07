@@ -4,3 +4,5 @@ sqlalchemy
 uvicorn
 psycopg2
 asyncpg
+celery[pytest]
+aio-pika
