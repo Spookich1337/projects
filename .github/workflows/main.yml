@@ -57,6 +57,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
+          file: /docker/server.dockefile
           push: True
           tags: | 
             ${{secrets.DOCKERHUB_LOGIN}}/fastapi-app:latest
